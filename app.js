@@ -40,8 +40,16 @@ const COL = { NOME: 'NOME', ADMISSAO: 'ADMISSÃO', FUNCAO: 'FUNÇÃO', LOJA: 'LO
 const stateM = {
   rows: [],
   supervisor: '',
-  gerente: ''
+  gerente: '',
+  loja: '',
+  colaborador: ''
 };
+
+/* Mapa entre cada filtro do painel (Supervisor, Gerente, Loja, Colaborador) e a
+   coluna correspondente na aba GERAL, usada para calcular as opções de cada
+   filtro de forma dependente dos demais (ver mensalMatchExcluding/refreshMensalFilters). */
+const MENSAL_FIELD_COLUMN = { supervisor: COL.SUPER, gerente: COL.GERENTE, loja: COL.LOJA, colaborador: COL.NOME };
+const MENSAL_FIELD_SELECT = { supervisor: 'mSupervisor', gerente: 'mGerente', loja: 'mLoja', colaborador: 'mColaborador' };
 
 /* ---------------- Novas fontes ----------------
    COMPARATIVO_TRIMESTRE: COLABORADOR, FUNÇÃO, LOJA, Banco Saldo, MÊS, GERENTE, SUPERVISOR
@@ -54,8 +62,6 @@ const COL_POS = { COLABORADOR: 'COLABORADOR', FUNCAO: 'FUNÇÃO', LOJA: 'LOJA', 
 
 const stateComparativoTrimestre = { rows: [] };
 const statePositivosMes = { rows: [] };
-
-const stateEv = { colaborador: '' };
 
 /* ---------------- CSV parsing (minimal, handles quoted fields) ---------------- */
 
@@ -397,16 +403,80 @@ function renderMensalTree() {
   emptyState.hidden = true;
 }
 
+/* Retorna true se a linha `row` (aba GERAL) é compatível com os filtros
+   atualmente selecionados em stateM, ignorando o filtro `exclude`. Usada
+   para calcular, para cada um dos 4 filtros, apenas as opções compatíveis
+   com o que já foi selecionado nos outros 3 (filtros dependentes entre si). */
+function mensalMatchExcluding(row, exclude) {
+  if (exclude !== 'supervisor' && stateM.supervisor && row[COL.SUPER] !== stateM.supervisor) return false;
+  if (exclude !== 'gerente' && stateM.gerente && row[COL.GERENTE] !== stateM.gerente) return false;
+  if (exclude !== 'loja' && stateM.loja && row[COL.LOJA] !== stateM.loja) return false;
+  if (exclude !== 'colaborador' && stateM.colaborador && row[COL.NOME] !== stateM.colaborador) return false;
+  return true;
+}
+
+/* Recalcula as opções dos 4 selects (Supervisor, Gerente, Loja, Colaborador)
+   com base na combinação atual dos demais filtros e, se a seleção atual de
+   algum filtro deixou de ser compatível com os outros, limpa esse filtro.
+   `anchor` é o filtro que o usuário acabou de alterar (se houver): seu valor
+   é sempre respeitado como está, e são os OUTROS 3 filtros que podem ser
+   limpos caso deixem de ser compatíveis com a nova seleção. Sem `anchor`
+   (ex.: carregamento inicial dos dados), todos os 4 são validados entre si. */
+function refreshMensalFilters(anchor) {
+  const fields = ['supervisor', 'gerente', 'loja', 'colaborador'];
+  const toValidate = anchor ? fields.filter(f => f !== anchor) : fields;
+
+  // 1) Invalida seleções que deixaram de ser compatíveis com os demais filtros.
+  //    Repete em algumas passadas para acomodar efeitos em cadeia (ex.: limpar
+  //    a Loja pode, por sua vez, tornar o Colaborador selecionado incompatível).
+  for (let pass = 0; pass < fields.length; pass++) {
+    let changedInPass = false;
+    toValidate.forEach(f => {
+      if (!stateM[f]) return;
+      const compatibleRows = stateM.rows.filter(r => mensalMatchExcluding(r, f));
+      const values = uniqueSorted(compatibleRows, MENSAL_FIELD_COLUMN[f]);
+      if (!values.includes(stateM[f])) { stateM[f] = ''; changedInPass = true; }
+    });
+    if (!changedInPass) break;
+  }
+
+  // 2) Repopula cada select com as opções compatíveis com os outros 3 filtros.
+  fields.forEach(f => {
+    const compatibleRows = stateM.rows.filter(r => mensalMatchExcluding(r, f));
+    const values = uniqueSorted(compatibleRows, MENSAL_FIELD_COLUMN[f]);
+    const el = document.getElementById(MENSAL_FIELD_SELECT[f]);
+    populateSelect(el, values, f === 'loja' ? lojaLabel : undefined);
+    el.value = stateM[f];
+  });
+}
+
+/* Dispara a atualização completa após a mudança de um dos 4 filtros:
+   recalcula as opções dependentes (mantendo `field` como âncora) e atualiza
+   as três áreas do Acompanhamento Mensal (árvore Loja/Colaborador, Evolução
+   Mensal e Dias com Banco Positivo). */
+function onMensalFilterChange(field) {
+  refreshMensalFilters(field);
+  renderMensalTree();
+  renderEvEvolution();
+  renderPosDias();
+}
+
 function setupMensalFilters() {
   document.getElementById('mSupervisor').addEventListener('change', e => {
     stateM.supervisor = e.target.value;
-    renderMensalTree();
-    refreshEvColaborador();
+    onMensalFilterChange('supervisor');
   });
   document.getElementById('mGerente').addEventListener('change', e => {
     stateM.gerente = e.target.value;
-    renderMensalTree();
-    refreshEvColaborador();
+    onMensalFilterChange('gerente');
+  });
+  document.getElementById('mLoja').addEventListener('change', e => {
+    stateM.loja = e.target.value;
+    onMensalFilterChange('loja');
+  });
+  document.getElementById('mColaborador').addEventListener('change', e => {
+    stateM.colaborador = e.target.value;
+    onMensalFilterChange('colaborador');
   });
 }
 
@@ -486,9 +556,10 @@ async function initMensal() {
     const text = await res.text();
     stateM.rows = csvToObjects(text);
 
-    populateSelect(document.getElementById('mSupervisor'), uniqueSorted(stateM.rows, COL.SUPER));
-    populateSelect(document.getElementById('mGerente'), uniqueSorted(stateM.rows, COL.GERENTE));
+    refreshMensalFilters();
     renderMensalTree();
+    renderEvEvolution();
+    renderPosDias();
   } catch (err) {
     console.error(err);
     document.getElementById('mTreePanel').hidden = true;
@@ -505,12 +576,13 @@ async function initMensal() {
    e/ou gerente já estiver selecionado nos filtros do Acompanhamento
    Mensal (stateM), a lista de colaboradores é restrita a esse recorte. */
 
-/* Linhas de COMPARATIVO_TRIMESTRE respeitando os filtros de Supervisor/Gerente
+/* Linhas de COMPARATIVO_TRIMESTRE respeitando os filtros de Supervisor/Gerente/Loja
    já aplicados na página, quando selecionados. */
 function evFilteredRows() {
   return stateComparativoTrimestre.rows.filter(r =>
     (!stateM.supervisor || r[COL_TRIM.SUPER] === stateM.supervisor) &&
-    (!stateM.gerente || r[COL_TRIM.GERENTE] === stateM.gerente)
+    (!stateM.gerente || r[COL_TRIM.GERENTE] === stateM.gerente) &&
+    (!stateM.loja || r[COL_TRIM.LOJA] === stateM.loja)
   );
 }
 
@@ -561,7 +633,7 @@ function renderEvEvolution() {
   const emptyState = document.getElementById('evEmptyState');
   const summary = document.getElementById('evSummary');
 
-  if (!stateEv.colaborador) {
+  if (!stateM.colaborador) {
     wrap.hidden = true;
     wrap.innerHTML = '';
     summary.textContent = '';
@@ -570,7 +642,7 @@ function renderEvEvolution() {
     return;
   }
 
-  const rows = evFilteredRows().filter(r => r[COL_TRIM.COLABORADOR] === stateEv.colaborador);
+  const rows = evFilteredRows().filter(r => r[COL_TRIM.COLABORADOR] === stateM.colaborador);
   if (!rows.length) {
     wrap.hidden = true;
     wrap.innerHTML = '';
@@ -590,28 +662,9 @@ function renderEvEvolution() {
   emptyState.hidden = true;
 }
 
-/* Repopula o select de colaboradores com base no filtro atual (Supervisor/Gerente)
-   e mantém a seleção atual se ela ainda existir na nova lista. */
-function refreshEvColaborador() {
-  const sel = document.getElementById('evColaborador');
-  populateSelect(sel, uniqueSorted(evFilteredRows(), COL_TRIM.COLABORADOR));
-  stateEv.colaborador = sel.value;
-  renderEvEvolution();
-  renderPosDias();
-}
-
-function setupEvFilters() {
-  document.getElementById('evColaborador').addEventListener('change', e => {
-    stateEv.colaborador = e.target.value;
-    renderEvEvolution();
-    renderPosDias();
-  });
-}
-
 /* ---------------- Dias com Banco Positivo (fonte POSITIVOS_MÊS) ----------------
-   Usa o mesmo colaborador selecionado em "Evolução Mensal do Banco de Horas"
-   (stateEv.colaborador) e os mesmos filtros de Supervisor/Gerente do
-   Acompanhamento Mensal (stateM). Lista, em ordem cronológica, cada dia em
+   Usa os mesmos 4 filtros do Acompanhamento Mensal (Supervisor, Gerente,
+   Loja e Colaborador — stateM). Lista, em ordem cronológica, cada dia em
    que o colaborador teve banco positivo: DATA (DT), DIA e BANCO TOTAL. */
 
 /* Converte o valor de DT (data) vindo do CSV publicado em um objeto Date.
@@ -646,12 +699,13 @@ function formatDT(raw) {
   return `${dd}/${mm}/${d.getFullYear()}`;
 }
 
-/* Linhas de POSITIVOS_MÊS respeitando os filtros de Supervisor/Gerente
+/* Linhas de POSITIVOS_MÊS respeitando os filtros de Supervisor/Gerente/Loja
    já aplicados na página, quando selecionados (mesmo critério de evFilteredRows). */
 function posFilteredRows() {
   return statePositivosMes.rows.filter(r =>
     (!stateM.supervisor || r[COL_POS.SUPER] === stateM.supervisor) &&
-    (!stateM.gerente || r[COL_POS.GERENTE] === stateM.gerente)
+    (!stateM.gerente || r[COL_POS.GERENTE] === stateM.gerente) &&
+    (!stateM.loja || r[COL_POS.LOJA] === stateM.loja)
   );
 }
 
@@ -691,7 +745,7 @@ function renderPosDias() {
   const emptyState = document.getElementById('posEmptyState');
   const summary = document.getElementById('posSummary');
 
-  if (!stateEv.colaborador) {
+  if (!stateM.colaborador) {
     wrap.hidden = true;
     wrap.innerHTML = '';
     summary.textContent = '';
@@ -700,7 +754,7 @@ function renderPosDias() {
     return;
   }
 
-  const rows = posFilteredRows().filter(r => r[COL_POS.COLABORADOR] === stateEv.colaborador);
+  const rows = posFilteredRows().filter(r => r[COL_POS.COLABORADOR] === stateM.colaborador);
   if (!rows.length) {
     wrap.hidden = true;
     wrap.innerHTML = '';
@@ -728,7 +782,7 @@ async function loadComparativoTrimestre() {
     if (!res.ok) throw new Error('Falha ao carregar planilha COMPARATIVO_TRIMESTRE');
     const text = await res.text();
     stateComparativoTrimestre.rows = csvToObjects(text);
-    refreshEvColaborador();
+    renderEvEvolution();
   } catch (err) {
     console.error(err);
     document.getElementById('evTableWrap').hidden = true;
@@ -769,7 +823,6 @@ function setupSidebarToggle() {
 
 async function init() {
   setupSidebarToggle();
-  setupEvFilters();
   initMensal();
   loadComparativoTrimestre();
   loadPositivosMes();
