@@ -355,6 +355,7 @@ function onMensalFilterChange(field) {
   renderMensalTree();
   renderColabHeader();
   renderEvEvolution();
+  renderLojaBarChart();
   renderPosDias();
 }
 
@@ -457,6 +458,7 @@ async function initMensal() {
     renderMensalTree();
     renderColabHeader();
     renderEvEvolution();
+    renderLojaBarChart();
     renderPosDias();
   } catch (err) {
     console.error(err);
@@ -511,6 +513,68 @@ function evFilteredRows() {
   );
 }
 
+/* Gráfico de linha: Eixo X = Mês, Eixo Y = Saldo do banco de horas (mesma
+   fonte COMPARATIVO_TRIMESTRE já usada pela tabela abaixo). Retorna '' quando
+   não há nenhum valor numérico para plotar. */
+function buildEvLineChart(rows) {
+  const sorted = [...rows].sort((a, b) => mesOrderIndex(a[COL_TRIM.MES]) - mesOrderIndex(b[COL_TRIM.MES]));
+
+  const points = sorted.map(r => ({
+    mes: mesLabel(r[COL_TRIM.MES]),
+    val: parseDecimalHours(r[COL_TRIM.BANCO_SALDO])
+  }));
+
+  const validVals = points.map(p => p.val).filter(v => !Number.isNaN(v));
+  if (!validVals.length) return '';
+
+  const width = 640, height = 200;
+  const padLeft = 46, padRight = 14, padTop = 18, padBottom = 28;
+  const plotW = width - padLeft - padRight;
+  const plotH = height - padTop - padBottom;
+
+  let min = Math.min(...validVals, 0);
+  let max = Math.max(...validVals, 0);
+  if (min === max) { min -= 1; max += 1; }
+
+  const xStep = points.length > 1 ? plotW / (points.length - 1) : 0;
+  const xAt = i => padLeft + (points.length > 1 ? i * xStep : plotW / 2);
+  const yAt = v => padTop + plotH - ((v - min) / (max - min)) * plotH;
+
+  const zeroY = (min <= 0 && max >= 0) ? yAt(0) : null;
+
+  const linePoints = points
+    .map((p, i) => (Number.isNaN(p.val) ? null : `${xAt(i).toFixed(1)},${yAt(p.val).toFixed(1)}`))
+    .filter(Boolean)
+    .join(' ');
+
+  const dots = points.map((p, i) => {
+    if (Number.isNaN(p.val)) return '';
+    const cls = p.val > 0 ? 'positive' : (p.val < 0 ? 'negative' : '');
+    return `<circle class="ev-dot ${cls}" cx="${xAt(i).toFixed(1)}" cy="${yAt(p.val).toFixed(1)}" r="3.5"></circle>`;
+  }).join('');
+
+  const xLabels = points.map((p, i) =>
+    `<text class="ev-axis-label" x="${xAt(i).toFixed(1)}" y="${height - 8}" text-anchor="middle">${p.mes}</text>`
+  ).join('');
+
+  const yMaxLabel = `<text class="ev-axis-label" x="${(padLeft - 8).toFixed(1)}" y="${(padTop + 4).toFixed(1)}" text-anchor="end">${decimalHoursToHHMM(max)}</text>`;
+  const yMinLabel = `<text class="ev-axis-label" x="${(padLeft - 8).toFixed(1)}" y="${(padTop + plotH).toFixed(1)}" text-anchor="end">${decimalHoursToHHMM(min)}</text>`;
+  const zeroLine = zeroY != null
+    ? `<line class="ev-zero" x1="${padLeft}" y1="${zeroY.toFixed(1)}" x2="${width - padRight}" y2="${zeroY.toFixed(1)}"></line>
+       <text class="ev-axis-label" x="${(padLeft - 8).toFixed(1)}" y="${(zeroY + 3).toFixed(1)}" text-anchor="end">00:00</text>`
+    : '';
+
+  return `
+    <svg class="ev-chart-svg" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Gráfico de linha do saldo do banco de horas por mês">
+      ${zeroLine}
+      <polyline class="ev-line" points="${linePoints}" fill="none"></polyline>
+      ${dots}
+      ${yMaxLabel}
+      ${yMinLabel}
+      ${xLabels}
+    </svg>`;
+}
+
 function buildEvEvolutionTable(rows) {
   const sorted = [...rows].sort((a, b) => mesOrderIndex(a[COL_TRIM.MES]) - mesOrderIndex(b[COL_TRIM.MES]));
   const trs = sorted.map((r, i) => {
@@ -555,12 +619,15 @@ function buildEvEvolutionTable(rows) {
 
 function renderEvEvolution() {
   const wrap = document.getElementById('evTableWrap');
+  const chartWrap = document.getElementById('evChartWrap');
   const emptyState = document.getElementById('evEmptyState');
   const summary = document.getElementById('evSummary');
 
   if (!stateM.colaborador) {
     wrap.hidden = true;
     wrap.innerHTML = '';
+    chartWrap.hidden = true;
+    chartWrap.innerHTML = '';
     summary.textContent = '';
     emptyState.hidden = false;
     emptyState.querySelector('p').textContent = 'Selecione um colaborador para ver a evolução do banco de horas.';
@@ -571,6 +638,8 @@ function renderEvEvolution() {
   if (!rows.length) {
     wrap.hidden = true;
     wrap.innerHTML = '';
+    chartWrap.hidden = true;
+    chartWrap.innerHTML = '';
     summary.textContent = '';
     emptyState.hidden = false;
     emptyState.querySelector('p').textContent = 'Nenhum dado encontrado para este colaborador em COMPARATIVO_TRIMESTRE.';
@@ -582,8 +651,135 @@ function renderEvEvolution() {
   const loja = lojaLabel(first[COL_TRIM.LOJA]);
   summary.textContent = `${funcao} · ${loja} · ${rows.length} mês(es) disponível(eis)`;
 
+  const chartHtml = buildEvLineChart(rows);
+  if (chartHtml) {
+    chartWrap.innerHTML = chartHtml;
+    chartWrap.hidden = false;
+  } else {
+    chartWrap.innerHTML = '';
+    chartWrap.hidden = true;
+  }
+
   wrap.innerHTML = buildEvEvolutionTable(rows);
   wrap.hidden = false;
+  emptyState.hidden = true;
+}
+
+/* ---------------- Saldo do Banco de Horas por Colaborador (fonte COMPARATIVO_TRIMESTRE) ----------------
+   Gráfico de barras da loja selecionada: Eixo X = Colaborador, Eixo Y = saldo
+   do banco de horas no mês mais recente disponível de cada colaborador.
+   Respeita os filtros de Supervisor, Gerente e Loja (evFilteredRows) e não
+   depende do filtro de Colaborador. Nenhum ranking, média ou indicador novo:
+   os colaboradores são exibidos em ordem alfabética. */
+
+/* Para cada colaborador do recorte atual, mantém apenas a linha do mês mais
+   recente reconhecido em MES_ORDER. */
+function lojaBarItems() {
+  const byColab = new Map();
+  evFilteredRows().forEach(r => {
+    const nome = String(r[COL_TRIM.COLABORADOR] || '').trim();
+    if (!nome) return;
+    const idx = mesOrderIndex(r[COL_TRIM.MES]);
+    if (idx === MES_ORDER.length) return; // mês não reconhecido, ignora
+    const prev = byColab.get(nome);
+    if (!prev || idx >= prev.idx) {
+      byColab.set(nome, { nome, idx, mes: r[COL_TRIM.MES], val: parseDecimalHours(r[COL_TRIM.BANCO_SALDO]) });
+    }
+  });
+  return [...byColab.values()]
+    .filter(it => !Number.isNaN(it.val))
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { numeric: true }));
+}
+
+/* Encurta nomes longos apenas no rótulo do eixo X (o nome completo fica no
+   <title> de cada barra). */
+function shortColabLabel(nome) {
+  const parts = String(nome).trim().split(/\s+/);
+  if (parts.length < 2) return parts[0] ? parts[0].slice(0, 14) : '—';
+  const label = `${parts[0]} ${parts[parts.length - 1]}`;
+  return label.length > 16 ? `${parts[0]} ${parts[parts.length - 1][0]}.` : label;
+}
+
+function buildLojaBarChart(items) {
+  if (!items.length) return '';
+
+  const slot = 72, barW = 40;
+  const padLeft = 52, padRight = 16, padTop = 22, padBottom = 74;
+  const width = padLeft + padRight + items.length * slot;
+  const height = 280;
+  const plotH = height - padTop - padBottom;
+
+  const vals = items.map(it => it.val);
+  let min = Math.min(...vals, 0);
+  let max = Math.max(...vals, 0);
+  if (min === max) { min -= 1; max += 1; }
+
+  const yAt = v => padTop + plotH - ((v - min) / (max - min)) * plotH;
+  const zeroY = yAt(0);
+  const baseY = padTop + plotH;
+
+  const bars = items.map((it, i) => {
+    const xCenter = padLeft + i * slot + slot / 2;
+    const x = xCenter - barW / 2;
+    const yVal = yAt(it.val);
+    const y = Math.min(yVal, zeroY);
+    const h = Math.max(Math.abs(yVal - zeroY), 1);
+    const cls = it.val > 0 ? 'positive' : (it.val < 0 ? 'negative' : '');
+    const labelY = it.val >= 0 ? (y - 6) : (y + h + 12);
+    return `
+      <g>
+        <rect class="loja-bar ${cls}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW}" height="${h.toFixed(1)}" rx="3">
+          <title>${it.nome} · ${mesLabel(it.mes)} · ${decimalHoursToHHMM(it.val)}</title>
+        </rect>
+        <text class="loja-bar-value ${cls}" x="${xCenter.toFixed(1)}" y="${labelY.toFixed(1)}" text-anchor="middle">${decimalHoursToHHMM(it.val)}</text>
+        <text class="ev-axis-label" x="${xCenter.toFixed(1)}" y="${(baseY + 16).toFixed(1)}" text-anchor="end" transform="rotate(-35 ${xCenter.toFixed(1)} ${(baseY + 16).toFixed(1)})">${shortColabLabel(it.nome)}</text>
+      </g>`;
+  }).join('');
+
+  const yMaxLabel = `<text class="ev-axis-label" x="${(padLeft - 8).toFixed(1)}" y="${(padTop + 4).toFixed(1)}" text-anchor="end">${decimalHoursToHHMM(max)}</text>`;
+  const yMinLabel = `<text class="ev-axis-label" x="${(padLeft - 8).toFixed(1)}" y="${baseY.toFixed(1)}" text-anchor="end">${decimalHoursToHHMM(min)}</text>`;
+  const zeroLine = `
+    <line class="ev-zero" x1="${padLeft}" y1="${zeroY.toFixed(1)}" x2="${width - padRight}" y2="${zeroY.toFixed(1)}"></line>
+    <text class="ev-axis-label" x="${(padLeft - 8).toFixed(1)}" y="${(zeroY + 3).toFixed(1)}" text-anchor="end">00:00</text>`;
+
+  return `
+    <svg class="loja-bar-svg" style="min-width:${width}px" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Gráfico de barras do saldo do banco de horas por colaborador">
+      ${zeroLine}
+      ${bars}
+      ${yMaxLabel}
+      ${yMinLabel}
+    </svg>`;
+}
+
+function renderLojaBarChart() {
+  const chartWrap = document.getElementById('lojaBarChartWrap');
+  const emptyState = document.getElementById('lojaBarEmptyState');
+  const summary = document.getElementById('lojaBarSummary');
+  if (!chartWrap || !emptyState || !summary) return;
+
+  const clear = msg => {
+    chartWrap.innerHTML = '';
+    chartWrap.hidden = true;
+    summary.textContent = '';
+    emptyState.hidden = false;
+    emptyState.querySelector('p').textContent = msg;
+  };
+
+  if (!stateM.loja) {
+    clear('Selecione uma loja para ver o saldo do banco de horas por colaborador.');
+    return;
+  }
+
+  const items = lojaBarItems();
+  if (!items.length) {
+    clear('Nenhum saldo de banco de horas encontrado para esta loja em COMPARATIVO_TRIMESTRE.');
+    return;
+  }
+
+  const meses = [...new Set(items.map(it => mesLabel(it.mes)))];
+  summary.textContent = `${lojaLabel(stateM.loja)} · ${items.length} colaborador(es) · mês mais recente: ${meses.join(', ')}`;
+  chartWrap.innerHTML = buildLojaBarChart(items);
+  chartWrap.hidden = false;
   emptyState.hidden = true;
 }
 
@@ -708,6 +904,7 @@ async function loadComparativoTrimestre() {
     const text = await res.text();
     stateComparativoTrimestre.rows = csvToObjects(text);
     renderEvEvolution();
+    renderLojaBarChart();
   } catch (err) {
     console.error(err);
     document.getElementById('evTableWrap').hidden = true;

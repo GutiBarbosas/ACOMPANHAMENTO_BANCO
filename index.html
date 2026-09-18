@@ -130,6 +130,7 @@
           <h2>Evolução Mensal do Banco de Horas</h2>
         </div>
         <p class="table-sub" id="evSummary"></p>
+        <div class="ev-chart-wrap" id="evChartWrap" hidden></div>
         <div class="table-scroll" id="evTableWrap" hidden></div>
         <div class="empty-state empty-state-inline" id="evEmptyState">
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M4 19.5V6a2 2 0 0 1 2-2h9l5 5v10.5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
@@ -146,6 +147,18 @@
         <div class="empty-state empty-state-inline" id="posEmptyState">
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M4 19.5V6a2 2 0 0 1 2-2h9l5 5v10.5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
           <p>Selecione um colaborador para ver os dias com banco positivo.</p>
+        </div>
+      </section>
+
+      <section class="panel" id="lojaBarPanel" aria-label="Saldo do banco de horas por colaborador da loja">
+        <div class="filters-head">
+          <h2>Saldo do Banco de Horas por Colaborador</h2>
+        </div>
+        <p class="table-sub" id="lojaBarSummary"></p>
+        <div class="loja-bar-wrap" id="lojaBarChartWrap" hidden></div>
+        <div class="empty-state empty-state-inline" id="lojaBarEmptyState">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M4 19.5V6a2 2 0 0 1 2-2h9l5 5v10.5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+          <p>Selecione uma loja para ver o saldo do banco de horas por colaborador.</p>
         </div>
       </section>
 

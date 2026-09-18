@@ -557,6 +557,66 @@ tbody td.col-data { font-family: var(--mono); font-size: 12.3px; color: var(--te
 .banco-value.negative { color: var(--red); }
 .banco-value.positive { color: var(--green); }
 
+/* ---- Evolução Mensal do Banco de Horas: gráfico de linha ---- */
+
+.ev-chart-wrap {
+  margin-bottom: 14px;
+}
+
+.ev-chart-svg {
+  width: 100%;
+  height: 200px;
+  display: block;
+}
+
+.ev-line {
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.ev-dot { fill: var(--accent); }
+.ev-dot.positive { fill: var(--green); }
+.ev-dot.negative { fill: var(--red); }
+
+.ev-zero {
+  stroke: var(--border);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.ev-axis-label {
+  font-size: 9.5px;
+  fill: var(--text-faint);
+  font-family: var(--font);
+}
+
+/* ---- Saldo do Banco de Horas por Colaborador: gráfico de barras ---- */
+
+.loja-bar-wrap {
+  margin-bottom: 4px;
+  overflow-x: auto;
+}
+
+.loja-bar-svg {
+  height: 280px;
+  display: block;
+}
+
+.loja-bar { fill: var(--accent); }
+.loja-bar.positive { fill: var(--green); }
+.loja-bar.negative { fill: var(--red); }
+
+.loja-bar-value {
+  font-size: 9.5px;
+  font-family: var(--mono);
+  font-weight: 600;
+  fill: var(--text-dim);
+}
+.loja-bar-value.positive { fill: var(--green); }
+.loja-bar-value.negative { fill: var(--red); }
+
 /* ---- Acompanhamento Mensal: árvore Supervisor → Loja → Colaborador ---- */
 
 .mensal-tree {
